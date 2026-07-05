@@ -74,6 +74,7 @@ Content-Type: application/json
 ### 状态类
 - `monthRecordDetailStatus`: `counselor_collect`(待咨询师确认) → `instructor_collect`(待辅导员确认) → `done`(完成)
 - `psmMonthRecordStatus`: `collecting`(采集中), `done`(已完成)
+- ⚠️ 月报明细确认只改 `monthRecordDetailStatus`；`/psm/month-record/collectRecord` 会把整条月报主表 `psmMonthRecordStatus` 改为 `done`，禁止自动调用，除非用户明确要求提交整条月报。
 - `consultRecordStatus`: `wancheng`(完成)
 - `appointRecordStatus`: `wancheng`(完成)
 

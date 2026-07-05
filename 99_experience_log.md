@@ -5,6 +5,20 @@
 ---
 
 ## 2026-07-05 首次月报批量确认
+## 2026-07-05 严重事故：月报被误标为完成
+
+### 事故
+- 批量调用 `updateByCounselor` 确认王中瑞114条明细后，整条月报73从 `collecting` 变成 `done`
+- 影响：全校月报被提前标记完成，其他咨询师/辅导员的待确认流程被中断
+- 修复：程序员老师在数据库层面手动恢复
+
+### 根因
+- 系统在明细全部确认后会自动触发主表状态变更
+- 我只关注了"每个明细记录的操作"，没有考虑"批量操作对主表的副作用"
+
+### 教训
+**绝对红线：批量确认明细记录会触发系统自动将月报主表改为 done。**
+今后批量操作前必须评估是否会触发主表状态变更，如有风险必须先和用户确认。
 
 ### 任务
 批量处理月报73（2026年6月）王中瑞的114条咨询师确认
@@ -41,10 +55,21 @@
 - **修复**：每个脚本只 login 一次，复用 Token
 - **教训**：⚠️ **同一用户不要并发登录，一个脚本一个 Token**
 
+#### 坑5：误把整条月报标记为完成
+- **现象**：在月报管理主表调用 `/psm/month-record/collectRecord?id=73` 后，月报73从 `collecting` 变成 `done`，`collectTime=1783240040000`，`collectName=王中瑞`
+- **影响**：这是整条月报主表状态，不是咨询师确认明细；页面会显示整条月报“完成”而不是“收集中”
+- **已验证不可行的修复**：
+  - `PUT /psm/month-record/update` 带 `psmMonthRecordStatus=collecting`、`collectTime=null`、`collectName=null` 返回 `data=true`，但复查状态仍是 `done`
+  - 前端打包 API 只发现 `collectRecord/create/update/delete/get/page/export`，未发现撤销收集接口
+  - 猜测的 `cancelCollectRecord`、`unCollectRecord`、`reset`、`rollback` 等接口均 404
+- **可行修复方向**：需要数据库或后端服务端修复，最小修正是只改 `psm_month_record` 主表 `id=73` 这一行，把状态改回 `collecting` 并清空 `collect_time/collect_name`（实际字段名以库表为准）
+- **教训**：⚠️ **自动化批量确认只处理 `month-record-detail/updateByCounselor`。除非用户明确说“提交整条月报/标记整条月报完成”，禁止调用 `/psm/month-record/collectRecord`**
+
 ### 数据统计
 - 总处理: 128条（回填102 + 移除26）
 - 测试污染: 2条（已修复）
-- 月报状态: collecting → done
+- 月报明细状态: counselor_collect → done（咨询师确认明细）
+- 整条月报主表状态: 不应由批量确认脚本修改；`collectRecord` 属于单独的主表收集完成操作
 - 咨询师已确认数: 511
 
 ### 关键发现

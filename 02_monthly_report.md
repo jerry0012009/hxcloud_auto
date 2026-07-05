@@ -7,6 +7,14 @@
 3. **咨询师确认** (`counselor_collect` 状态) → 填写 `counselorMeasure` 等字段 → 状态变为 `done`
 4. 管理员汇总收集 (`collecting` → `done`)
 
+## ⚠️ 操作红线：明细确认 ≠ 整条月报完成
+
+- `monthRecordDetailStatus` 是学生明细状态：`instructor_collect` / `counselor_collect` / `done`。
+- `psmMonthRecordStatus` 是整条月报主表状态：`collecting` / `done`。
+- 咨询师批量确认只调用 `/psm/month-record-detail/updateByCounselor`，处理的是学生明细。
+- `/psm/month-record/collectRecord?id=` 会把整条月报主表标记为完成，并写入 `collectTime`、`collectName`。除非用户明确要求“提交整条月报/标记整条月报完成”，脚本和助手都禁止调用。
+- 已实测：`PUT /psm/month-record/update` 返回成功也不会把主表从 `done` 恢复为 `collecting`；前端打包 API 也没有撤销接口。误操作后一般需要数据库或后端服务端修复。
+
 ## API 端点列表
 
 ### 月报记录 (month-record)
@@ -14,6 +22,7 @@
 |------|------|------|
 | GET | `/psm/month-record/page` | 分页查询月报列表 |
 | GET | `/psm/month-record/get?id=` | 获取单条月报 |
+| POST | `/psm/month-record/collectRecord?id=` | ⚠️ 整条月报收集完成，禁止自动调用 |
 
 ### 月报详情 (month-record-detail) — ⭐ 核心
 | 方法 | 路径 | 说明 |
@@ -288,4 +297,7 @@ for record in resp.json()['data']['list']:
     # 提交确认
     requests.post(f"{BASE}/psm/month-record-detail/updateByCounselor",
         json=record, headers=HEADERS)
+
+# 注意：到这里就结束。不要调用 /psm/month-record/collectRecord。
+# collectRecord 是整条月报主表“收集完成”，必须由用户明确授权后才可执行。
 ```

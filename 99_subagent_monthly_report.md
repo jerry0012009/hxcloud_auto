@@ -258,6 +258,10 @@ curl -X DELETE 'http://jerrypsy.top:8105/admin-api/psm/month-record/delete?id=73
 | **路径** | `/psm/month-record/collectRecord` |
 | **说明** | 将月报从"收集中"变为"完成"状态。调用后月报状态变为 `done`，`collectTime` 和 `collectName` 会被自动填充 |
 
+> ⚠️ **危险操作 / 主表级提交**：这是整条月报主表的“收集完成”，不是咨询师确认学生明细。批量确认咨询师意见时只允许调用 `/psm/month-record-detail/updateByCounselor`，不要在脚本收尾自动调用本接口。
+>
+> 已实测：误调用后，`PUT /psm/month-record/update` 即使返回 `data=true`，也不会把 `done` 恢复成 `collecting`；前端打包 API 未发现撤销接口。恢复通常需要数据库或后端服务端把主表状态改回 `collecting` 并清空 `collectTime/collectName`。
+
 **请求参数 (Query)**:
 
 | 参数 | 类型 | 必填 | 说明 |
@@ -273,7 +277,7 @@ curl -X POST 'http://jerrypsy.top:8105/admin-api/psm/month-record/collectRecord?
 
 **响应**: `{"code": 0, "msg": "", "data": true}`
 
-> **注意**: 此操作会将月报标记为完成，同时记录操作人和操作时间。
+> **注意**: 此操作会将月报标记为完成，同时记录操作人和操作时间。除非用户明确要求“提交整条月报 / 标记整条月报完成 / 调 collectRecord”，否则禁止调用。
 
 ---
 
@@ -1004,6 +1008,8 @@ curl -X PUT 'http://jerrypsy.top:8105/admin-api/psm/month-record-detail/reject/1
     (psmMonthRecordStatus: collecting → done)
 ```
 
+> ⚠️ 上面的最后一步是整条月报主表提交，不属于咨询师批量确认。自动化任务默认只做到 `monthRecordDetailStatus: counselor_collect → done`，不得继续执行 `POST collectRecord`。
+
 **前端页面路由**:
 - 咨询师确认页面: `CounselorSubmitIndex.vue` → 查询 `status=counselor_collect` 的记录
 - 辅导员确认页面: `InstructorSubmitIndex.vue` → 查询 `status=instructor_collect` 的记录
@@ -1084,7 +1090,7 @@ print(json.dumps(d, ensure_ascii=False))
 | `POST` | `/psm/month-record/create` | 创建月报 | 管理员 |
 | `PUT` | `/psm/month-record/update` | 更新月报 | 管理员 |
 | `DELETE` | `/psm/month-record/delete?id=` | 删除月报 | 管理员 |
-| `POST` | `/psm/month-record/collectRecord?id=` | 收集完成月报 | 管理员 |
+| `POST` | `/psm/month-record/collectRecord?id=` | ⚠️ 收集完成整条月报，禁止自动调用 | 管理员 |
 | `GET` | `/psm/month-record/export-excel` | 导出月报Excel | 管理员 |
 | `GET` | `/psm/month-record-detail/page` | 明细分页列表 | 管理员/咨询师/辅导员 |
 | `GET` | `/psm/month-record-detail/get?id=` | 获取单条明细 | 管理员/咨询师/辅导员 |
