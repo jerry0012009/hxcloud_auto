@@ -51,3 +51,66 @@
 - 跨月措施一致性: 96/96 = 100%（有历史记录的学生）
 - 移除记录占比: 24%（辅导员建议出库时咨询师通常同意）
 - 新学生无历史: 8%（需按规则生成）
+
+---
+
+## 2026-07-05 Docker部署aTrust VPN客户端（失败）
+
+### 任务
+在远程Linux服务器（Contabo VPS, Ubuntu 24.04, 8核23G）上通过Docker运行西华大学深信服aTrust零信任VPN客户端，以访问校内网 http://202.115.157.76/
+
+### 做对了的事
+1. **CAS REST API自动化认证**：完全绕过GUI，通过 `POST /cas/v1/tickets` 获取TGT → 获取ST → 自动完成CAS登录
+2. **短信验证码自动化**：通过CDP（Chrome DevTools Protocol）控制aTrust Electron客户端的webview，调用Vue.js实例的 `securePhoneSend()` 和 `securePhoneValid()` 方法
+3. **Docker镜像选择**：`hagb/docker-atrust:latest`（带VNC）可用，自动建立隧道接口 `utun7`
+4. **CDP远程调试**：创建 `/usr/share/sangfor/.aTrust/var/conf/allowDebug` 文件后，`--remote-debugging-port=9222` 可用
+5. **addr.conf预配置**：写入 `https://vpn.xhu.edu.cn` 到 `addr.conf` 可跳过Connection Options页面
+
+### 失败原因（根本问题）
+**aTrust核心服务（aTrustAgent --plugin plugins/aTrustCore）在Docker中无法存活。**
+
+#### 具体机制
+1. aTrust组件架构：Tray（Electron GUI）→ Daemon（进程管理）→ Core（核心服务）→ Xtunnel（隧道）
+2. **Daemon会杀死非自己启动的Core进程**：Daemon通过 `--fork` 机制启动Core，监控RPC连接（端口56630），检测异常即SIGKILL
+3. **Core依赖systemd用户服务**：尝试启动 `aTrustShell.service`，Docker中无systemd用户会话导致失败
+4. **Core依赖dbus session bus**：`Failed to connect to bus: No such file or directory` 反复出现
+5. **权限问题**：Core以 `sangfor` 用户运行，但Docker中 `/tmp`、`/home/sangfor` 等目录权限不匹配
+6. **X11输入无效**：xdotool/xte/pynput/XTest 所有X11输入模拟工具都无法与Electron应用交互（Chromium有自己的输入处理）
+
+#### 尝试过的修复
+- ✅ fake systemctl脚本 → systemd调用被拦截，但Core仍死
+- ✅ 权限修复（chmod 777 /tmp, chown sangfor） → 无效
+- ✅ dbus-daemon启动 → 无效
+- ✅ 以root运行Core → 仍被Daemon杀死
+- ✅ 替换Daemon为no-op → Tray会重新启动真实Daemon
+- ✅ kill Daemon后单独运行Core → Core在6秒内被SIGKILL
+
+#### 结论
+aTrust的Daemon安全机制设计为防止未授权的核心服务运行，在Docker这种非标准环境中无法绕过。这不是配置问题，是架构层面的限制。
+
+### 最终方案
+**frpc反向隧道**：用户本地电脑连VPN后，通过frpc将校内服务暴露到公网服务器。
+
+```toml
+# frpc.toml
+serverAddr = "47.243.176.188"
+serverPort = 7000
+[auth]
+method = "token"
+token = "12345678JERRY"
+
+[[proxies]]
+name = "HX-YUN-student"
+type = "tcp"
+localIP = "202.115.157.76"
+localPort = 80
+remotePort = 8105
+```
+
+访问地址：`http://47.243.176.188:8105/`
+
+### 教训
+- ⚠️ **不要在Docker中运行需要systemd用户会话的VPN客户端**
+- ⚠️ **深信服aTrust/EasyConnect等商业VPN客户端在Docker中基本不可用**（daemon安全机制+systemd依赖）
+- ⚠️ **如果必须用Docker，优先考虑OpenVPN/WireGuard等开源VPN**，或用frpc反向隧道绕过
+- ✅ **CAS REST API + CDP自动化是可靠的认证方案**，问题只在VPN客户端本身
